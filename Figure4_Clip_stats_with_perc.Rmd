@@ -1,0 +1,239 @@
+---
+title: "Beeswarm plot for clip stats"
+author: "Thileepan Sekaran"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Libraries
+```{r}
+# Install pacman if not available, then load required packages
+if (!requireNamespace("pacman", quietly = TRUE)) {
+  install.packages("pacman")
+}
+library(pacman)
+
+# Install (if needed) and load required packages
+p_load(
+  openxlsx,
+  tidyverse,
+  ggbeeswarm,
+  scales,
+  mgsub
+  )
+```
+
+
+# GGtheme
+## This code chunk sets the axis-fonts style
+
+```{r}
+custom_ggtheme = theme_bw() + 
+  theme(panel.background =  element_blank(),
+                                    axis.title.x = element_blank(),
+                                    axis.text.x = element_text(family = "arial",size = 14,angle = 45,hjust = 1),
+                                    axis.text.y = element_text(family = "arial",size = 10),
+                                    axis.title.y = element_text(family = "arial",size = 16,face = "bold"),
+                                    legend.text = element_text(family = "arial",size = 16,face = "bold"),
+                                    legend.title = element_text(family = "arial",size = 14,face = "bold"),
+                                    axis.ticks.x.bottom = element_line(size = 12),
+                                    axis.ticks.y.left = element_line(size = 7),
+        legend.position = "none",
+plot.title =element_text(family = "arial",size = 14,face = "bold",hjust = 0.5),strip.text = element_text(family = "arial",size = 13,hjust = 0.5,face = "bold"),
+plot.subtitle =element_text(family = "arial",size = 14,face = "bold",hjust = 0.5)) 
+
+label_million <- scales::label_number(accuracy=0.1,scale=1e-6,unit="M")
+
+
+```
+
+
+
+# TLC-CLIP
+
+## This code chunk reads the data provided in Supplementary tables in
+## [Ernst et al 2016](https://academic.oup.com/nar/article/51/13/e70/7191424#supplementary-data)
+## The following code chunk reads the TLC-CLIP data excluding the irCLIP,iCLIP,easyCLIP and also samples with 1K,10K cells.
+
+```{r}
+tlc_clip = read.xlsx("CLIP_stats.xlsx", sheet = 1) |>
+    slice(3:n()) |>
+    dplyr::select(1, 2, 7, 8) |>
+    dplyr::rename(
+        Samples              = 1,
+        Input_reads          = X2,
+        Genome_aligned_reads = X7,
+        Usable_reads         = X8
+    ) |>
+    filter(grepl("50k|Background|noUV", Samples))
+
+tlc_clip_nsamples = tlc_clip |> nrow()
+
+tlc_clip =  tlc_clip  %>%  mutate(Experiment_type = paste0("TLC-CLIP (n=",tlc_clip_nsamples,")")) %>% 
+  as_tibble() 
+
+
+tlc_clip
+```
+
+
+#CLIP,iCLIP,PAR-CLIP,PAR-iCLIP
+## This code chunk reads the excel sheet2 provided in Supplementary table 1 in
+## [Nostrand et al 2016](https://www.nature.com/articles/nmeth.3810#Sec21)
+```{r}
+clip_iclip_parclip_pariclip=read.xlsx("CLIP_stats.xlsx",sheet = 2) |>  slice(3:n())  |>  dplyr::select(1,6,8:10) |>  dplyr::rename(Samples =1,Experiment_type=2,Input_reads=3,Genome_aligned_reads=4, Usable_reads=5) %>%  tibble()
+
+clip_nsamples =  clip_iclip_parclip_pariclip %>%  filter(Experiment_type=="clip") %>%  nrow()
+
+iclip_nsamples =  clip_iclip_parclip_pariclip %>%  filter(Experiment_type=="iclip") %>%  nrow()
+
+parclip_nsamples =  clip_iclip_parclip_pariclip %>%  filter(Experiment_type=="par-clip") %>%  nrow()
+
+
+pariclip_nsamples =  clip_iclip_parclip_pariclip %>%  filter(Experiment_type=="par-iclip") %>%  nrow()
+
+clip_iclip_parclip_pariclip$Experiment_type <- mgsub(
+  clip_iclip_parclip_pariclip$Experiment_type,
+  c("clip", "iclip", "par-clip", "par-iclip"),
+  c(
+    paste0("CLIP (n=", clip_nsamples, ")"),
+    paste0("iCLIP (n=", iclip_nsamples, ")"),
+    paste0("PAR-CLIP (n=", parclip_nsamples, ")"),
+    paste0("PAR-iCLIP (n=", pariclip_nsamples, ")")
+  )
+)
+
+clip_iclip_parclip_pariclip
+```
+
+
+# eCLIP
+## This code chunk reads the excel sheet2 provided in Supplementary table 2 ## ## in [Nostrand et al 2016](https://www.nature.com/articles/nmeth.3810#Sec21)
+```{r}
+eclip_rep1=read.xlsx("CLIP_stats.xlsx",sheet = 3) |>  dplyr::select(7,8,9,11) |>  slice(4:n()) |>  dplyr::rename(Samples=1,Input_reads=2,Genome_aligned_reads=3,Usable_reads=4) %>%  tibble()
+
+eclip_rep2=read.xlsx("CLIP_stats.xlsx",sheet = 3) |>  dplyr::select(15,16,17,19,) |>  slice(4:n()) |>  dplyr::rename(Samples=1,Input_reads=2,Genome_aligned_reads=3,Usable_reads=4) %>%  tibble()
+
+eCLIP=rbind(eclip_rep1,eclip_rep2) |>  mutate(Experiment_type = "eCLIP (n=204)")
+
+eCLIP
+```
+
+
+# clips data compiled
+
+
+```{r}
+all_clip=rbind(tlc_clip,eCLIP,clip_iclip_parclip_pariclip)
+
+all_clip
+```
+
+# wider<->long format
+## Transform the wider format into longe format suitable for ggplots
+```{r}
+clip_stats_long=all_clip %>%  pivot_longer(cols = c("Input_reads","Genome_aligned_reads","Usable_reads"),values_to = "Read_counts",names_to = "Analysis_steps")
+
+```
+# Percentage Calculation
+## Compute the percentage of reads at "Genome_aligned_reads" and "Usable_reads" compared to "Input_reads"
+```{r}
+clip_stats_perc_long = clip_stats_long %>% 
+  group_by(Experiment_type,Samples) %>% 
+  mutate(Read_counts = as.numeric(Read_counts),
+Input_reads = as.numeric(Read_counts[Analysis_steps == "Input_reads"]),Percentage = case_when(
+Analysis_steps== "Input_reads" ~ 100,
+Analysis_steps== "Genome_aligned_reads" ~ (as.numeric(Read_counts) / Input_reads) * 100,
+Analysis_steps== "Usable_reads" ~ (as.numeric(Read_counts) / Input_reads) * 100,
+TRUE ~ NA_real_)) %>%
+select(-Input_reads) %>%
+ungroup() %>% 
+mutate(Analysis_steps=factor(Analysis_steps,levels=c("Input_reads","Genome_aligned_reads","Usable_reads")),
+Experiment_type=factor(Experiment_type,c("TLC-CLIP (n=52)","eCLIP (n=204)","PAR-iCLIP (n=7)","PAR-CLIP (n=39)","iCLIP (n=120)","CLIP (n=113)")))
+```
+
+
+
+
+# Mean Summary
+## Compute mean of reads and percentage for "Input_reads","Genome_aligned_reads" and "Usable_reads" per CLIP methods
+```{r}
+summary_stats <- clip_stats_perc_long %>%
+    group_by(Experiment_type, Analysis_steps) %>%
+    summarise(
+        mean_reads = mean(as.numeric(Read_counts), na.rm = TRUE),
+        mean_pct = mean(Percentage, na.rm = TRUE),
+        .groups = "drop"
+    ) %>%
+    mutate(
+        meanreads_meanpct_label = case_when(
+            Analysis_steps == "Input_reads" ~ label_million(mean_reads),
+            TRUE ~ paste0(label_million(mean_reads), " (", round(mean_pct, 1), "%)")
+        )
+    )
+
+summary_stats
+```
+
+# BeeswarmPlot
+```{r}
+clip_stats_plot = clip_stats_perc_long |> 
+    ggplot(aes(x = Analysis_steps, 
+               y = Read_counts, 
+               shape = Analysis_steps, 
+               color = Analysis_steps)) +
+    geom_quasirandom(varwidth = TRUE, 
+                     method = "tukeyDense", 
+                     aes(color = Analysis_steps), 
+                     size = 0.6, alpha = 0.45) +
+    scale_color_manual(values = c("grey30", "darkorange", "deepskyblue")) +
+    stat_summary(aes(group = Experiment_type), 
+                 fun = mean, geom = "line", color = "grey") +
+    stat_summary(geom = "point", shape = 16, fun = mean, 
+                 aes(colour = Analysis_steps), size = 4) +  scale_y_continuous(labels = unit_format(unit = "M", scale = 1e-6)) +
+    facet_wrap(~ Experiment_type, scales = "free_y", nrow = 3, ncol = 2, strip.position = "top") +
+    ylab("Reads in Million(M)") +custom_ggtheme
+
+## Adding mean to the plot
+
+clip_stats_plot_mean_label = clip_stats_plot + geom_text(data = summary_stats, 
+              aes(x = Analysis_steps, y = mean_reads, label = label_million(mean_reads)),
+              color = "black", size = 6, vjust = -0.5, fontface = "bold")
+    
+## Adding mean percentage to the plot
+clip_stats_plot_mean_perc_label = clip_stats_plot_mean_label + 
+  geom_text(data = summary_stats %>% 
+              filter(Analysis_steps != "Input_reads"),
+              aes(x = Analysis_steps, y = mean_reads, 
+                  label = paste0("(", round(mean_pct, 1), "%)")),
+              color = "black", size = 4, hjust = -0.15, 
+            vjust = 0.5,  box.padding = 0.2, 
+            point.padding = 0.3, segment.size = 0.2)
+
+clip_stats_plot_mean_perc_label
+
+```
+
+
+# SavingPlot
+```{r}
+ggsave("Figure4_with_mean_perc.svg",width = 178,height = 230, units = "mm",dpi = 300,path = ".")
+```
+
+
+
+# sessioninfo
+```{r}
+sessionInfo()
+```
+
+```{r}
+
+```
+
